@@ -236,7 +236,11 @@ func setDefaults(debug bool) {
 	// Set default shell from environment or fallback to /bin/bash
 	shellPath := os.Getenv("SHELL")
 	if shellPath == "" {
-		shellPath = "/bin/bash"
+		if termuxShell := GetTermuxShell(); termuxShell != "" {
+			shellPath = termuxShell
+		} else {
+			shellPath = "/bin/bash"
+		}
 	}
 	viper.SetDefault("shell.path", shellPath)
 	viper.SetDefault("shell.args", []string{"-l"})
