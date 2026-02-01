@@ -9,11 +9,16 @@ build:
 
 termux:
 	@echo "Building opencode for Termux (Android ARM64)..."
+	@echo "This may take several minutes, please wait..."
 	@mkdir -p bin
 	CGO_ENABLED=1 \
 	GOOS=android \
 	GOARCH=arm64 \
+	CC=clang \
+	CXX=clang++ \
+	CFLAGS="-O2" \
 	go build $(LDFLAGS) -o bin/opencode .
+	@echo "Build complete! Binary: bin/opencode"
 
 clean:
 	@echo "Cleaning build artifacts..."

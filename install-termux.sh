@@ -1,34 +1,28 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+set -e
 
 print_message() {
     local level=$1
     local message=$2
-    local color=""
-
-    case $level in
-        info) color="${GREEN}" ;;
-        warning) color="${YELLOW}" ;;
-        error) color="${RED}" ;;
-    esac
-
-    echo -e "${color}${message}${NC}"
+    echo "[${level}] ${message}"
 }
 
 print_message info "Updating Termux packages..."
-pkg update -y
+pkg update -y || true
 
-print_message info "Installing Go..."
-pkg install -y golang git
+print_message info "Checking for required packages..."
+for pkg in golang git make clang; do
+    if ! command -v $pkg >/dev/null 2>&1; then
+        print_message info "Installing $pkg..."
+        pkg install -y $pkg
+    else
+        print_message info "$pkg already installed"
+    fi
+done
 
 print_message info "Cloning repository..."
 if [ -d "$HOME/opencode" ]; then
-    print_message warning "Directory $HOME/opencode already exists. Pulling latest changes..."
+    print_message info "Updating existing repository..."
     cd "$HOME/opencode"
     git pull origin main
 else
@@ -36,8 +30,14 @@ else
     cd "$HOME/opencode"
 fi
 
-print_message info "Building opencode..."
+print_message info "Building opencode for Android ARM64..."
+print_message info "This may take 3-10 minutes depending on your device..."
 make termux
+
+if [ ! -f "bin/opencode" ]; then
+    print_message error "Build failed! bin/opencode not found"
+    exit 1
+fi
 
 print_message info "Installing opencode..."
 mkdir -p $PREFIX/bin
@@ -45,10 +45,19 @@ cp bin/opencode $PREFIX/bin/opencode
 chmod +x $PREFIX/bin/opencode
 
 print_message info "Verifying installation..."
-if command -v opencode >/dev/null 2>&1; then
+if [ -f "$PREFIX/bin/opencode" ]; then
+    print_message info "========================================="
     print_message info "opencode successfully installed!"
-    print_message info "Run 'opencode' to start the application"
+    print_message info "========================================="
+    print_message info ""
+    print_message info "To start: opencode"
+    print_message info ""
+    print_message info "To configure API keys:"
+    print_message info "1. Run: opencode"
+    print_message info "2. Press Ctrl+O to open model dialog"
+    print_message info "3. Select your provider and enter API key"
 else
-    print_message error "Installation failed: binary not in PATH"
+    print_message error "Installation failed"
     exit 1
 fi
+
