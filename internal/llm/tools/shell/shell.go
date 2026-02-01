@@ -74,7 +74,11 @@ func newPersistentShell(cwd string) *PersistentShell {
 	if shellPath == "" {
 		shellPath = os.Getenv("SHELL")
 		if shellPath == "" {
-			shellPath = "/bin/bash"
+			if termuxShell := config.GetTermuxShell(); termuxShell != "" {
+				shellPath = termuxShell
+			} else {
+				shellPath = "/bin/bash"
+			}
 		}
 	}
 	
@@ -248,22 +252,51 @@ func (s *PersistentShell) killChildren() {
 		return
 	}
 
-	pgrepCmd := exec.Command("pgrep", "-P", fmt.Sprintf("%d", s.cmd.Process.Pid))
-	output, err := pgrepCmd.Output()
-	if err != nil {
-		return
-	}
+	parentPid := s.cmd.Process.Pid
+	var childPids []int
 
-	for pidStr := range strings.SplitSeq(string(output), "\n") {
-		if pidStr = strings.TrimSpace(pidStr); pidStr != "" {
-			var pid int
-			fmt.Sscanf(pidStr, "%d", &pid)
-			if pid > 0 {
-				proc, err := os.FindProcess(pid)
-				if err == nil {
-					proc.Signal(syscall.SIGTERM)
+	// Try using pgrep first
+	if pgrepPath, err := exec.LookPath("pgrep"); err == nil {
+		pgrepCmd := exec.Command(pgrepPath, "-P", fmt.Sprintf("%d", parentPid))
+		output, err := pgrepCmd.Output()
+		if err == nil {
+			for pidStr := range strings.SplitSeq(string(output), "\n") {
+				if pidStr = strings.TrimSpace(pidStr); pidStr != "" {
+					var pid int
+					if _, err := fmt.Sscanf(pidStr, "%d", &pid); err == nil && pid > 0 {
+						childPids = append(childPids, pid)
+					}
 				}
 			}
+		}
+	}
+
+	// Fallback to ps if pgrep failed or was not found
+	if len(childPids) == 0 {
+		psCmd := exec.Command("ps", "-e", "-o", "pid,ppid")
+		output, err := psCmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.Contains(line, "PID") {
+					continue
+				}
+				var pid, ppid int
+				if _, err := fmt.Sscanf(line, "%d %d", &pid, &ppid); err == nil {
+					if ppid == parentPid {
+						childPids = append(childPids, pid)
+					}
+				}
+			}
+		}
+	}
+
+	// Kill identified children
+	for _, pid := range childPids {
+		proc, err := os.FindProcess(pid)
+		if err == nil {
+			proc.Signal(syscall.SIGTERM)
 		}
 	}
 }
