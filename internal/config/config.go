@@ -135,6 +135,7 @@ func Load(workingDir string, debug bool) (*Config, error) {
 		MCPServers: make(map[string]MCPServer),
 		Providers:  make(map[models.ModelProvider]Provider),
 		LSP:        make(map[string]LSPConfig),
+		Agents:     make(map[AgentName]Agent),
 	}
 
 	configureViper()
@@ -384,6 +385,13 @@ func setProviderDefaults() {
 		viper.SetDefault("agents.title.model", models.VertexAIGemini25Flash)
 		return
 	}
+
+	// Fallback: No provider configured, use Anthropic as default
+	// User will need to configure an API key later via UI or environment
+	viper.SetDefault("agents.coder.model", models.Claude4Sonnet)
+	viper.SetDefault("agents.summarizer.model", models.Claude4Sonnet)
+	viper.SetDefault("agents.task.model", models.Claude4Sonnet)
+	viper.SetDefault("agents.title.model", models.Claude4Sonnet)
 }
 
 // hasAWSCredentials checks if AWS credentials are available in the environment.
@@ -500,37 +508,28 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 		// Provider not configured, check if we have environment variables
 		apiKey := getProviderAPIKey(provider)
 		if apiKey == "" {
-			logging.Warn("provider not configured for model, reverting to default",
+			// Provider not available, add it as disabled so user can configure later
+			logging.Warn("provider not configured, adding as disabled",
 				"agent", name,
 				"model", agent.Model,
 				"provider", provider)
-
-			// Set default model based on available providers
-			if setDefaultModelForAgent(name) {
-				logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
-			} else {
-				return fmt.Errorf("no valid provider available for agent %s", name)
-			}
-		} else {
-			// Add provider with API key from environment
-			cfg.Providers[provider] = Provider{
-				APIKey: apiKey,
-			}
-			logging.Info("added provider from environment", "provider", provider)
+			cfg.Providers[provider] = Provider{Disabled: true}
+			return nil
 		}
-	} else if providerCfg.Disabled || providerCfg.APIKey == "" {
-		// Provider is disabled or has no API key
-		logging.Warn("provider is disabled or has no API key, reverting to default",
+		// Add provider with API key from environment
+		cfg.Providers[provider] = Provider{
+			APIKey: apiKey,
+		}
+		logging.Info("added provider from environment", "provider", provider)
+	}
+	if providerCfg.Disabled || providerCfg.APIKey == "" {
+		// Provider is disabled or has no API key - allow it, user can configure later
+		logging.Warn("provider is disabled or has no API key",
 			"agent", name,
 			"model", agent.Model,
 			"provider", provider)
-
-		// Set default model based on available providers
-		if setDefaultModelForAgent(name) {
-			logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
-		} else {
-			return fmt.Errorf("no valid provider available for agent %s", name)
-		}
+		// Don't fail - allow the app to start so user can configure API key via UI
+		return nil
 	}
 
 	// Validate max tokens
@@ -813,7 +812,17 @@ func setDefaultModelForAgent(agent AgentName) bool {
 		return true
 	}
 
-	return false
+	// Fallback: Use Anthropic Claude as default model
+	// User can configure API key later via UI
+	maxTokens := int64(5000)
+	if agent == AgentTitle {
+		maxTokens = 80
+	}
+	cfg.Agents[agent] = Agent{
+		Model:     models.Claude37Sonnet,
+		MaxTokens: maxTokens,
+	}
+	return true
 }
 
 func updateCfgFile(updateCfg func(config *Config)) error {
