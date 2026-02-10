@@ -36,7 +36,11 @@ case "$filename" in
     ;;
 esac
 
-INSTALL_DIR=$HOME/.opencode/bin
+if [ -n "${TERMUX_VERSION:-}" ] && [ -n "${PREFIX:-}" ]; then
+    INSTALL_DIR="$PREFIX/bin"
+else
+    INSTALL_DIR="$HOME/.opencode/bin"
+fi
 mkdir -p "$INSTALL_DIR"
 
 if [ -z "$requested_version" ]; then
